@@ -1,11 +1,37 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import { MarketState, Currency, ShockEvent, AIAnalysis, AIGlobalOutlook, Transaction, QuantumEvent } from './src/types.js';
 
 dotenv.config();
+
+const PERSISTENCE_FILE = path.join(process.cwd(), 'data', 'transactions.json');
+
+function loadPersistedTransactions(): Transaction[] {
+  try {
+    const dir = path.dirname(PERSISTENCE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(PERSISTENCE_FILE)) return [];
+    const raw = fs.readFileSync(PERSISTENCE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistTransactions(transactions: Transaction[]): void {
+  try {
+    const dir = path.dirname(PERSISTENCE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PERSISTENCE_FILE, JSON.stringify(transactions, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to persist transactions:', err);
+  }
+}
 
 const app = express();
 const PORT = 3000;
@@ -76,18 +102,22 @@ const INITIAL_CURRENCIES: { [code: string]: { name: string; symbol: string; cate
   'e-USD': { name: "FedDollar (CBDC)", symbol: "e-$", category: "cbdc", emoji: "🇺🇸", baseRate: 1.0, volatility: 0.0001 }
 };
 
+const SEED_TRANSACTIONS: Transaction[] = [
+  { id: 'tx_1', client: 'Aethera Systems', amount: 12500, currency: 'EUR', status: 'completed', timestamp: Date.now() - 3600000 * 2, service: 'Sovereign API Licenses' },
+  { id: 'tx_2', client: 'Neo-Tokyo Logistics', amount: 2400000, currency: 'JPY', status: 'completed', timestamp: Date.now() - 3600000 * 5, service: 'Smart Routing Systems' },
+  { id: 'tx_3', client: 'Helios Carbon Grid', amount: 0.35, currency: 'BTC', status: 'completed', timestamp: Date.now() - 3600000 * 12, service: 'Decentralized Energy Clearing' },
+  { id: 'tx_4', client: 'Valerius Wealth Advisors', amount: 18500, currency: 'CHF', status: 'pending', timestamp: Date.now() - 600000, service: 'Sovereign Vault Storage' },
+  { id: 'tx_5', client: 'Beijing Rail Bureau', amount: 65000, currency: 'e-CNY', status: 'processing', timestamp: Date.now() - 300000, service: 'High-Speed Transit Ledger' }
+];
+
+const persistedTransactions = loadPersistedTransactions();
+
 // Seed Market State with historical random walk, Transactions, and Quantum Calendar
 const marketState: MarketState = {
   currencies: {},
   lastUpdated: Date.now(),
   shockEvent: null,
-  transactions: [
-    { id: 'tx_1', client: 'Aethera Systems', amount: 12500, currency: 'EUR', status: 'completed', timestamp: Date.now() - 3600000 * 2, service: 'Sovereign API Licenses' },
-    { id: 'tx_2', client: 'Neo-Tokyo Logistics', amount: 2400000, currency: 'JPY', status: 'completed', timestamp: Date.now() - 3600000 * 5, service: 'Smart Routing Systems' },
-    { id: 'tx_3', client: 'Helios Carbon Grid', amount: 0.35, currency: 'BTC', status: 'completed', timestamp: Date.now() - 3600000 * 12, service: 'Decentralized Energy Clearing' },
-    { id: 'tx_4', client: 'Valerius Wealth Advisors', amount: 18500, currency: 'CHF', status: 'pending', timestamp: Date.now() - 600000, service: 'Sovereign Vault Storage' },
-    { id: 'tx_5', client: 'Beijing Rail Bureau', amount: 65000, currency: 'e-CNY', status: 'processing', timestamp: Date.now() - 300000, service: 'High-Speed Transit Ledger' }
-  ],
+  transactions: persistedTransactions.length > 0 ? persistedTransactions : SEED_TRANSACTIONS,
   quantumCalendar: [
     { id: 'q_1', title: 'Federal Open Market Committee Rate Decision', timestamp: Date.now() + 3600000 * 14, timeLabel: 'In 14 hours', category: 'macro', status: 'Converging', quantumBlock: 894520, volatilityIndex: 'High', description: 'Federal Reserve consensus on terminal interest parameter bounds.' },
     { id: 'q_2', title: 'Digital Yuan Cross-Border Clearing Update', timestamp: Date.now() + 3600000 * 3, timeLabel: 'In 3 hours', category: 'cbdc', status: 'Converging', quantumBlock: 894502, volatilityIndex: 'Medium', description: 'Eurasian clearance protocols for multi-sovereign trade rails.' },
@@ -264,6 +294,7 @@ app.post('/api/transactions', (req, res) => {
   if (marketState.transactions.length > 25) {
     marketState.transactions.pop();
   }
+  persistTransactions(marketState.transactions);
 
   marketState.lastUpdated = Date.now();
   res.json({ success: true, transaction: newTx });
